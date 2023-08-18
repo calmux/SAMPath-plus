@@ -235,4 +235,46 @@ class VisionTransformer4K(nn.Module):
 
 
         # add the [CLS] token to the embed patch tokens
-        cls_tokens = self.cls
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+
+        # add positional encoding to each token
+        x = x + self.interpolate_pos_encoding(x, w, h)
+
+        return self.pos_drop(x)
+
+    def forward(self, x):
+        x = self.prepare_tokens(x)
+        for blk in self.blocks:
+            x = blk(x)
+        x = self.norm(x)
+        return x[:, 0]
+
+    def get_last_selfattention(self, x):
+        x = self.prepare_tokens(x)
+        for i, blk in enumerate(self.blocks):
+            if i < len(self.blocks) - 1:
+                x = blk(x)
+            else:
+                # return attention of the last block
+                return blk(x, return_attention=True)
+
+    def get_intermediate_layers(self, x, n=1):
+        x = self.prepare_tokens(x)
+        # we return the output tokens from the `n` last blocks
+        output = []
+        for i, blk in enumerate(self.blocks):
+            x = blk(x)
+            if len(self.blocks) - i <= n:
+                output.append(self.norm(x))
+        return output
+    
+def vit4k_xs(patch_size=16, **kwargs):
+    model = VisionTransformer4K(
+        patch_size=patch_size, input_embed_dim=384, output_embed_dim=192,
+        depth=6, num_heads=6, mlp_ratio=4, 
+        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
