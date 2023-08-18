@@ -52,4 +52,43 @@ class PromptSAM(nn.Module):
         )
 
         self.model.mask_decoder.iou_prediction_head.layers[-1] = nn.Linear(prompt_dim,
-                                         
+                                                                           self.model.mask_decoder.num_mask_tokens)
+
+        if freeze_image_encoder:
+            for param in self.model.image_encoder.parameters():
+                param.requires_grad = False
+        if freeze_prompt_encoder:
+            for param in self.model.prompt_encoder.parameters():
+                param.requires_grad = False
+        if freeze_mask_decoder:
+            for param in self.model.mask_decoder.parameters():
+                param.requires_grad = False
+
+        self.dense_prompt_decoder = None
+        if dense_prompt_decoder:
+            decoder_layer = nn.TransformerDecoderLayer(d_model=prompt_dim, nhead=8)
+            self.dense_prompt_decoder = nn.TransformerDecoder(decoder_layer, num_layers=1)
+
+        self.no_sam = no_sam
+
+
+    def forward(self, images):
+        H, W = self.mask_HW
+
+        if not self.feature_input:
+            if images.shape[-2] != 1024 or images.shape[-1] != 1024:
+                images = F.interpolate(images, (1024, 1024), mode="bilinear", align_corners=False)
+
+            if not self.no_sam:
+                with torch.no_grad():
+                    image_embeddings = self.model.image_encoder(images)
+
+        if self.extra_encoder is not None:
+            extra_image_embeddings = self.extra_encoder(images)
+            if self.no_sam:
+                image_embeddings = extra_image_embeddings
+                # print(image_embeddings.shape)
+            else:
+                image_embeddings = image_embeddings + extra_image_embeddings
+
+        pred_ma
