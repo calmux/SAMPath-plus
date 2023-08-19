@@ -171,4 +171,50 @@ class PromptSAMLateFusion(nn.Module):
         )
 
         self.model.mask_decoder.iou_prediction_head.layers[-1] = nn.Linear(prompt_dim,
-                                                                           self
+                                                                           self.model.mask_decoder.num_mask_tokens)
+
+        if freeze_image_encoder:
+            for param in self.model.image_encoder.parameters():
+                param.requires_grad = False
+        if freeze_prompt_encoder:
+            for param in self.model.prompt_encoder.parameters():
+                param.requires_grad = False
+        if freeze_mask_decoder:
+            for param in self.model.mask_decoder.parameters():
+                param.requires_grad = False
+
+        self.fusion_neck = nn.Sequential(
+            nn.Conv2d(
+                768 + 384,
+                256,
+                kernel_size=1,
+                bias=False,
+            ),
+            LayerNorm2d(256),
+            nn.Conv2d(
+                256,
+                256,
+                kernel_size=3,
+                padding=1,
+                bias=False,
+            ),
+            LayerNorm2d(256),
+        )
+
+        self.dense_prompt_decoder = None
+        if dense_prompt_decoder:
+            decoder_layer = nn.TransformerDecoderLayer(d_model=prompt_dim, nhead=8)
+            self.dense_prompt_decoder = nn.TransformerDecoder(decoder_layer, num_layers=1)
+
+    def forward(self, images):
+        H, W = self.mask_HW
+
+        if not self.feature_input:
+            if images.shape[-2] != 1024 or images.shape[-1] != 1024:
+                images = F.interpolate(images, (1024, 1024), mode="bilinear", align_corners=False)
+
+            with torch.no_grad():
+                image_embeddings = self.model.image_encoder(images, no_neck=True)
+
+        if self.extra_encoder is not None:
+            ex_embed = sel
