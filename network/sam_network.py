@@ -91,4 +91,39 @@ class PromptSAM(nn.Module):
             else:
                 image_embeddings = image_embeddings + extra_image_embeddings
 
-        pred_ma
+        pred_masks = []
+        ious = []
+        for embedding in image_embeddings: #zip(image_embeddings):
+            sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
+                points=None,
+                boxes=None,
+                masks=None,
+            )
+
+            if self.dense_prompt_decoder is not None:
+                # img embedding dim, H, W ->  HW, dim
+                embedding_img = embedding.flatten(1).permute(1, 0)
+                # sparse_embeddings: Ncls + 1, dim ->  Ncls, dim
+                sparse_embeddings_v = self.model.mask_decoder.mask_tokens.weight.clone()
+                # org dense_embeddings shape: 1, 256, 64, 64, now it is 4094, 256
+                org_shape = dense_embeddings.shape
+                dense_embeddings_gen = self.dense_prompt_decoder(embedding_img, sparse_embeddings_v)
+                dense_embeddings_gen = dense_embeddings_gen.permute(1, 0).reshape(*org_shape)
+                dense_embeddings = dense_embeddings + dense_embeddings_gen
+
+            low_res_masks, iou_predictions = self.model.mask_decoder(
+                image_embeddings=embedding.unsqueeze(0),
+                image_pe=self.model.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_embeddings,
+                dense_prompt_embeddings=dense_embeddings,
+                multimask_output=True,
+            )
+
+            masks = F.interpolate(
+                low_res_masks,
+                (H, W),
+                mode="bilinear",
+                align_corners=False,
+            )
+            pred_masks.append(masks.squeeze(0))
+            ious.
