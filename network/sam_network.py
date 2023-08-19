@@ -126,4 +126,49 @@ class PromptSAM(nn.Module):
                 align_corners=False,
             )
             pred_masks.append(masks.squeeze(0))
-            ious.
+            ious.append(iou_predictions.reshape(-1, 1))
+
+        return pred_masks, ious
+
+    def get_predictor(self):
+        return SamPredictor(self.model)
+
+class PromptSAMLateFusion(nn.Module):
+    def __init__(
+            self,
+            model_type: str = "vit_b",
+            checkpoint: str = "",
+            prompt_dim: int = 256,
+            num_classes: int = 20,
+            extra_encoder = None,
+            freeze_image_encoder = True,
+            freeze_prompt_encoder = True,
+            freeze_mask_decoder = False,
+            mask_HW = (1024, 1024),
+            feature_input = False,
+            prompt_decoder = False,
+            dense_prompt_decoder=False,
+            no_sam=False,
+    ):
+        super().__init__()
+
+        self.model = sam_model_registry[model_type](checkpoint=checkpoint)
+        self.mask_HW = mask_HW
+        self.feature_input = feature_input
+
+        self.extra_encoder = extra_encoder
+        # change prompt
+        mask_tokens = nn.Embedding(num_classes + 1, prompt_dim)
+        self.model.mask_decoder.mask_tokens = mask_tokens
+        self.model.mask_decoder.num_mask_tokens = num_classes + 1
+
+        self.model.mask_decoder.output_hypernetworks_mlps = nn.ModuleList(
+            [
+                # self.model.mask_decoder.output_hypernetworks_mlps[0].clone()
+                copy.deepcopy(self.model.mask_decoder.output_hypernetworks_mlps[0])
+                for i in range(self.model.mask_decoder.num_mask_tokens)
+            ]
+        )
+
+        self.model.mask_decoder.iou_prediction_head.layers[-1] = nn.Linear(prompt_dim,
+                                                                           self
