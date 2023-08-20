@@ -250,4 +250,16 @@ class PromptSAMLateFusion(nn.Module):
                 multimask_output=True,
             )
 
-            masks = F.interp
+            masks = F.interpolate(
+                low_res_masks,
+                (H, W),
+                mode="bilinear",
+                align_corners=False,
+            )
+            pred_masks.append(masks.squeeze(0))
+            ious.append(iou_predictions.reshape(-1, 1))
+
+        return pred_masks, ious
+
+    def get_predictor(self):
+        return SamPredictor(self.model)
